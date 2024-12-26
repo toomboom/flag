@@ -9,6 +9,14 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #define STRLEN(str) (sizeof(str)-1)
 
+enum { no_limit = INT_MAX };
+
+enum { 
+    usage_indent_size = 2,
+    usage_max_line_width = 79,
+    usage_max_descr_offset = usage_max_line_width/3
+};
+
 void flag_init(flag_config *config, const char *program,
                cli_flag *flags, int flag_count)
 {
@@ -17,10 +25,16 @@ void flag_init(flag_config *config, const char *program,
     config->flag_count = flag_count;
 }
 
-void flag_error(const flag_config *config, const char *msg)
+void flag_error(const flag_config *config, const char *reason)
 {
-    fprintf(stderr, "%s: option %s: %s\n",
-            config->program, config->flag_name, msg);
+    if (config->is_long_flag) {
+        fprintf(stderr, "%s: option --%s: %s\n",
+                config->program, config->flag->long_name, reason);
+    }
+    else {
+        fprintf(stderr, "%s: option -%c: %s\n",
+                config->program, config->flag->short_name, reason);
+    }
 }
 
 int flag_int_callback(flag_config *config)
@@ -95,24 +109,24 @@ enum parsing_errors {
 };
 
 static int handle_error(const char *program, enum parsing_errors error,
-                        const char *flag_name)
+                        const char *flag_name, int limit)
 {
     switch (error) {
         case unknown_flag:
-            fprintf(stderr, "%s: unknown option %s\n",
-                    program, flag_name);
+            fprintf(stderr, "%s: unknown option %.*s\n",
+                    program, limit, flag_name);
             break;
         case redundant_argument:
-            fprintf(stderr, "%s: option %s doesn't allow an argument\n",
-                    program, flag_name);
+            fprintf(stderr, "%s: option %.*s doesn't allow an argument\n",
+                    program, limit, flag_name);
             break;
         case missing_argument:
-            fprintf(stderr, "%s: option %s requires an argument\n",
-                    program, flag_name);
+            fprintf(stderr, "%s: option %.*s requires an argument\n",
+                    program, limit, flag_name);
             break;
         case invalid_flag:
-            fprintf(stderr, "%s: invalid option %s\n",
-                    program, flag_name);
+            fprintf(stderr, "%s: invalid option %.*s\n",
+                    program, limit, flag_name);
             break;
         case callback_error:
             break;
@@ -131,12 +145,13 @@ static cli_flag* find_short_flag(flag_config *config, char short_name)
     return NULL;
 }
 
-static cli_flag* find_long_flag(flag_config *config, const char *long_name)
+static cli_flag* find_long_flag(flag_config *config, const char *long_name,
+                                int limit)
 {
     int i;
     for (i = 0; i < config->flag_count; i++) {
         cli_flag *flag = &config->flags[i];
-        if (flag->long_name && strcmp(flag->long_name, long_name) == 0)
+        if (flag->long_name && strncmp(flag->long_name, long_name, limit) == 0)
             return flag;
     }
     return NULL;
@@ -145,22 +160,17 @@ static cli_flag* find_long_flag(flag_config *config, const char *long_name)
 static int parse_long_flag(parsing_state *state, flag_config *config)
 {
     char *eq;
-    int len;
+    int limit;
     eq = strchr(*state->argv + 2, '=');
-    len = eq
-        ? MIN(eq - *state->argv, flag_max_name_length)
-        : flag_max_name_length;
-
-    strncpy(config->flag_name, *state->argv, len);
-    config->flag_name[len] = '\0';
-    config->flag = find_long_flag(config, config->flag_name+2);
+    limit = eq ? eq - *state->argv : no_limit;
+    config->flag = find_long_flag(config, *state->argv+2, limit-2);
     if (!config->flag)
         return handle_error(config->program, unknown_flag,
-                            config->flag_name);
+                            *state->argv, limit);
     if (eq) {
         if (config->flag->type == flag_no_arg)
             return handle_error(config->program, redundant_argument, 
-                                config->flag_name);
+                                *state->argv, limit);
         config->argument = eq+1;
         state->argv++;
     }
@@ -168,26 +178,28 @@ static int parse_long_flag(parsing_state *state, flag_config *config)
         config->argument = state->argv[1];
         if (!config->argument)
             return handle_error(config->program, missing_argument,
-                                config->flag_name);
+                                *state->argv, limit);
         state->argv += 2;
     }
     else {
         config->argument = NULL;
         state->argv++;
     }
+    config->is_long_flag = 1;
     return 0;
 }
 
 static int parse_short_flag(parsing_state *state, flag_config *config)
 {
     const char *flag_pos = *state->argv + state->short_pos;
-    config->flag_name[0] = '-';
-    config->flag_name[1] = *flag_pos;
-    config->flag_name[2] = '\0';
-    config->flag = find_short_flag(config, config->flag_name[1]);
+    char flag_name[3];
+    flag_name[0] = '-';
+    flag_name[1] = *flag_pos;
+    flag_name[2] = '\0';
+    config->flag = find_short_flag(config, *flag_pos);
     if (!config->flag)
         return handle_error(config->program, unknown_flag,
-                            config->flag_name);
+                            flag_name, no_limit);
     if (config->flag->type == flag_require_arg) {
         if (flag_pos[1] != '\0') {
             config->argument = flag_pos+1;
@@ -199,7 +211,7 @@ static int parse_short_flag(parsing_state *state, flag_config *config)
         }
         else {
             return handle_error(config->program, missing_argument,
-                                config->flag_name);
+                                flag_name, no_limit);
         }
         state->short_pos = 1;
     }
@@ -213,6 +225,7 @@ static int parse_short_flag(parsing_state *state, flag_config *config)
             state->short_pos = 1;
         }
     }
+    config->is_long_flag = 0;
     return 0;
 }
 
@@ -256,7 +269,7 @@ int flag_parse(flag_config *config, int argc, const char **argv)
             }
             else if ((*state.argv)[2] == '=') { /* --= */
                 return handle_error(config->program, invalid_flag,
-                                    *state.argv);
+                                    *state.argv, no_limit);
             }
             else { /* long flag */
                 parsing_status = parse_long_flag(&state, config);

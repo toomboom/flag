@@ -5,6 +5,8 @@ typedef struct flag_config_tag flag_config;
 
 enum flag_types { flag_no_arg, flag_require_arg, flag_usage_group };
 
+typedef int (flag_callback_fn)(flag_config *config);
+
 /* cli flag
  *   type:         flag type from enum flag_types
  *   short_name:   single character flag name, '\0' if none
@@ -37,20 +39,18 @@ typedef struct {
     } extra;
 } cli_flag;
 
-enum { flag_max_name_length = 31 };
-
 /* flag configuration
- *   program:    program name
- *   flag:       current flag being processed
- *   flag_name:  name of current flag (as appeared in command line)
- *   argument:   argument value for current flag
- *   flags:      array of flags
- *   flag_count: count of flags
+ *   flag:         current flag being processed
+ *   argument:     argument value for current flag
+ *   is_long_flag: which flag appears on command line
+ *   program:      program name
+ *   flags:        array of flags
+ *   flag_count:   count of flags
  */
 struct flag_config_tag {
     cli_flag *flag;
-    char flag_name[flag_max_name_length+1];
     const char *argument;
+    int is_long_flag;
     const char *program;
     cli_flag *flags;
     int flag_count;
