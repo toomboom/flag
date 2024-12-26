@@ -30,6 +30,7 @@ typedef struct {
         double double_data;
         float float_data;
         char char_data;
+        const char *str_data;
         void *ptr;
     } extra;
 } cli_flag;
