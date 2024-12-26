@@ -19,10 +19,8 @@ typedef int (flag_callback_fn)(flag_config *config);
  *   extra:        additional data that can be used by developer in callback
  *                 functions
  */
-typedef int (flag_callback_fn)(flag_config *config);
-
 typedef struct {
-    char type;
+    enum flag_types type;
     char short_name;
     const char *long_name;
     const char *arg_format;
@@ -65,18 +63,18 @@ void flag_init(flag_config *config, const char *program,
  *   >0 : new argc value on success
  *   <0 : on parsing error
  */
-int flag_parse(flag_config *config, int argc, const char **argv);
+int flag_parse(flag_config *config, const char **argv);
 
 void flag_usage(flag_config *config, const char *descr, const char *epilog);
 
 /* can be used inside a custom flag callback to output an error message */
 void flag_error(const flag_config *config, const char *msg);
 
-/* built-in flags */
 flag_callback_fn flag_int_callback, flag_double_callback,
                  flag_string_callback, flag_bool_callback,
                  flag_bit_callback;
 
+/* built-in flags */
 #define FLAG_COMMON(type, short_name, long_name, arg_format, \
                     description, value, callback, extra) \
     { \

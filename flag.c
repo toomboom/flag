@@ -43,12 +43,12 @@ int flag_int_callback(flag_config *config)
     long num; 
     errno = 0;
     num = strtol(config->argument, &endptr, 10);
-    if (errno == ERANGE || num < INT_MIN || num > INT_MAX) {
-        flag_error(config, "argument too large");
+    if (*endptr != '\0') {
+        flag_error(config, "expected decimal integer value");
         return 1;
     }
-    else if (*endptr != '\0') {
-        flag_error(config, "expected decimal integer value");
+    else if (errno == ERANGE || num < INT_MIN || num > INT_MAX) {
+        flag_error(config, "argument too large");
         return 2;
     }
     *(int *)config->flag->value = num;
@@ -61,12 +61,12 @@ int flag_double_callback(flag_config *config)
     double num; 
     errno = 0;
     num = strtod(config->argument, &endptr);
-    if (errno == ERANGE) {
-        flag_error(config, "argument too large");
+    if (*endptr != '\0') {
+        flag_error(config, "invalid floating point value");
         return 1;
     }
-    else if (*endptr != '\0') {
-        flag_error(config, "invalid floating point value");
+    else if (errno == ERANGE) {
+        flag_error(config, "argument too large");
         return 2;
     }
     *(double *)config->flag->value = num;
@@ -244,16 +244,16 @@ static int is_num(const char *str)
     return 1;
 }
 
-int flag_parse(flag_config *config, int argc, const char **argv)
+int flag_parse(flag_config *config, const char **argv)
 {
     parsing_state state = {
         .short_pos = 1, .argv = argv + 1,
         .pos_args = argv + 1
     };
-    int parsing_status;
+    int end_of_flags = 0, parsing_status;
     while (*state.argv) {
-        if (strlen(*state.argv) < 2 || is_num(*state.argv) ||
-            (*state.argv)[0] != '-') /* positional */
+        if (end_of_flags || strlen(*state.argv) < 2 ||
+            is_num(*state.argv) || (*state.argv)[0] != '-') /* positional */
         {
             *state.pos_args = *state.argv;
             state.pos_args++;
@@ -262,10 +262,8 @@ int flag_parse(flag_config *config, int argc, const char **argv)
         }
         else if ((*state.argv)[1] == '-') {
             if ((*state.argv)[2] == '\0') { /* -- */
-                int rest = (argv+argc-1) - (state.argv+1) + 1;
-                memmove(state.pos_args, state.argv+1, sizeof(char *) * rest);
-                state.pos_args += rest;
-                break;
+                end_of_flags = 1;
+                continue;
             }
             else if ((*state.argv)[2] == '=') { /* --= */
                 return handle_error(config->program, invalid_flag,
@@ -283,17 +281,11 @@ int flag_parse(flag_config *config, int argc, const char **argv)
             return parsing_status;
         parsing_status = config->flag->callback(config);
         if (parsing_status != 0)
-            return handle_error(NULL, callback_error, NULL);
+            return callback_error;
     }
     *state.pos_args = NULL;
     return state.pos_args - argv;
 }
-
-enum { 
-    usage_indent_size = 2,
-    usage_max_line_width = 79,
-    usage_max_descr_offset = usage_max_line_width/3
-};
 
 static int calc_description_offset(const flag_config *config)
 {
