@@ -17,6 +17,8 @@ enum flag_types { flag_no_arg, flag_require_arg, flag_usage_group };
  *   extra:        additional data that can be used by developer in callback
  *                 functions
  */
+typedef int (flag_callback_fn)(flag_config *config);
+
 typedef struct {
     char type;
     char short_name;
@@ -24,7 +26,7 @@ typedef struct {
     const char *arg_format;
     const char *description;
     void *value;
-    int (*callback)(flag_config *config);
+    flag_callback_fn *callback;
     union {
         int int_data;
         double double_data;
@@ -35,12 +37,6 @@ typedef struct {
     } extra;
 } cli_flag;
 
-/* dynamic array of flags */
-typedef struct {
-    int capacity, length;
-    cli_flag *array;
-} flag_vector;
-
 enum { flag_max_name_length = 31 };
 
 /* flag configuration
@@ -48,38 +44,20 @@ enum { flag_max_name_length = 31 };
  *   flag:       current flag being processed
  *   flag_name:  name of current flag (as appeared in command line)
  *   argument:   argument value for current flag
- *   flags:      vector of all registered flags
+ *   flags:      array of flags
+ *   flag_count: count of flags
  */
 struct flag_config_tag {
-    const char *program;
     cli_flag *flag;
     char flag_name[flag_max_name_length+1];
     const char *argument;
-    flag_vector flags;
+    const char *program;
+    cli_flag *flags;
+    int flag_count;
 };
 
-void flag_init(flag_config *config, const char *program, int capacity);
-void flag_free(flag_config *config);
-
-/* built-in flags */
-void flag_int(flag_config *config, char short_name, const char *long_name,
-              const char *arg_format, const char *description,
-              int *value);
-void flag_double(flag_config *config, char short_name, const char *long_name,
-                 const char *arg_format, const char *description,
-                 double *value);
-void flag_string(flag_config *config, char short_name, const char *long_name,
-                 const char *arg_format, const char *description,
-                 const char **strptr);
-void flag_bool(flag_config *config, char short_name, const char *long_name,
-               const char *description,
-               int *value);
-void flag_bit(flag_config *config, char short_name, const char *long_name,
-              const char *description, int *value,
-              int bit);
-
-/* add usage group header for organizing related flags */
-void flag_group(flag_config *config, const char *group_name);
+void flag_init(flag_config *config, const char *program,
+               cli_flag *flags, int flag_count);
 
 /* parse command line arguments according to registered flags.
  * modifies argv array in-place, leaving only argv[0] and positional arguments.
@@ -88,10 +66,53 @@ void flag_group(flag_config *config, const char *group_name);
  *   <0 : on parsing error
  */
 int flag_parse(flag_config *config, int argc, const char **argv);
+
 void flag_usage(flag_config *config, const char *descr, const char *epilog);
 
-/* add custom flag to configuration */
-void flag_add(flag_config *config, cli_flag *flag);
+/* can be used inside a custom flag callback to output an error message */
 void flag_error(const flag_config *config, const char *msg);
+
+/* built-in flags */
+flag_callback_fn flag_int_callback, flag_double_callback,
+                 flag_string_callback, flag_bool_callback,
+                 flag_bit_callback;
+
+#define FLAG_COMMON(type, short_name, long_name, arg_format, \
+                    description, value, callback, extra) \
+    { \
+        type, short_name, long_name, \
+        arg_format, description, \
+        value, callback, extra \
+    }
+
+#define FLAG_GROUP(group_name) \
+    FLAG_COMMON(flag_usage_group, 0, NULL, \
+                NULL, group_name, \
+                NULL, NULL, {0})
+
+#define FLAG_INT(short_name, long_name, arg_format, description, value) \
+    FLAG_COMMON(flag_require_arg, short_name, long_name, \
+                arg_format, description, \
+                value, &flag_int_callback, {0})
+
+#define FLAG_DOUBLE(short_name, long_name, arg_format, description, value) \
+    FLAG_COMMON(flag_require_arg, short_name, long_name, \
+                arg_format, description, \
+                value, &flag_double_callback, {0})
+
+#define FLAG_STRING(short_name, long_name, arg_format, description, strptr) \
+    FLAG_COMMON(flag_require_arg, short_name, long_name, \
+                arg_format, description, \
+                strptr, &flag_string_callback, {0})
+
+#define FLAG_BOOL(short_name, long_name, description, value) \
+    FLAG_COMMON(flag_no_arg, short_name, long_name, \
+                NULL, description, \
+                value, &flag_bool_callback, {0})
+
+#define FLAG_BIT(short_name, long_name, description, value, bit) \
+    FLAG_COMMON(flag_no_arg, short_name, long_name, \
+                NULL, description, \
+                value, &flag_bit_callback, {bit})
 
 #endif /* FLAG_H_SENTRY */

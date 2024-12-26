@@ -9,42 +9,12 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #define STRLEN(str) (sizeof(str)-1)
 
-static void vector_init(flag_vector *vec, int capacity)
-{
-    vec->array = malloc(capacity * sizeof(cli_flag));
-    vec->capacity = capacity;
-    vec->length = 0;
-}
-
-static void vector_free(flag_vector *vec)
-{
-    free(vec->array);
-}
-
-static void vector_add(flag_vector *vec, cli_flag *flag)
-{
-    if (vec->length == vec->capacity) {
-        vec->capacity *= 2;
-        vec->array = realloc(vec->array, vec->capacity * sizeof(cli_flag));
-    }
-    memcpy(&vec->array[vec->length], flag, sizeof(cli_flag));
-    vec->length++;
-}
-
-void flag_init(flag_config *config, const char *program, int capacity)
+void flag_init(flag_config *config, const char *program,
+               cli_flag *flags, int flag_count)
 {
     config->program = program;
-    vector_init(&config->flags, capacity);
-}
-
-void flag_free(flag_config *config)
-{
-    vector_free(&config->flags);
-}
-
-void flag_add(flag_config *config, cli_flag *flag)
-{
-    vector_add(&config->flags, flag);
+    config->flags = flags;
+    config->flag_count = flag_count;
 }
 
 void flag_error(const flag_config *config, const char *msg)
@@ -53,7 +23,7 @@ void flag_error(const flag_config *config, const char *msg)
             config->program, config->flag_name, msg);
 }
 
-static int flag_int_callback(flag_config *config)
+int flag_int_callback(flag_config *config)
 {
     char *endptr;
     long num; 
@@ -71,7 +41,7 @@ static int flag_int_callback(flag_config *config)
     return 0;
 } 
 
-static int flag_double_callback(flag_config *config)
+int flag_double_callback(flag_config *config)
 {
     char *endptr;
     double num; 
@@ -89,103 +59,26 @@ static int flag_double_callback(flag_config *config)
     return 0;
 } 
 
-static int flag_string_callback(flag_config *config)
+int flag_string_callback(flag_config *config)
 {
     
     *(const char **)config->flag->value = config->argument;
     return 0;
 } 
 
-static int flag_bool_callback(flag_config *config)
+int flag_bool_callback(flag_config *config)
 {
     
     *(int *)config->flag->value = 1;
     return 0;
 } 
 
-static int flag_bit_callback(flag_config *config)
+int flag_bit_callback(flag_config *config)
 {
     
     *(int *)config->flag->value |= config->flag->extra.int_data;
     return 0;
 } 
-
-void flag_group(flag_config *config, const char *group_name)
-{
-    cli_flag group = {
-        flag_usage_group,
-        0, NULL,
-        NULL, group_name,
-        NULL, NULL
-    };
-    flag_add(config, &group);
-}
-
-void flag_int(flag_config *config, char short_name, const char *long_name,
-              const char *arg_format, const char *description,
-              int *value)
-{
-    cli_flag flag = {
-        flag_require_arg,
-        short_name, long_name,
-        arg_format, description,
-        value, &flag_int_callback
-    };
-    flag_add(config, &flag);
-}
-
-void flag_double(flag_config *config, char short_name, const char *long_name,
-                 const char *arg_format, const char *description,
-                 double *value)
-{
-    cli_flag flag = {
-        flag_require_arg,
-        short_name, long_name,
-        arg_format, description,
-        value, &flag_double_callback
-    };
-    flag_add(config, &flag);
-}
-
-void flag_string(flag_config *config, char short_name, const char *long_name,
-                 const char *arg_format, const char *description,
-                 const char **strptr)
-{
-    cli_flag flag = {
-        flag_require_arg,
-        short_name, long_name,
-        arg_format, description,
-        strptr, &flag_string_callback
-    };
-    flag_add(config, &flag);
-}
-
-void flag_bool(flag_config *config, char short_name, const char *long_name,
-               const char *description,
-               int *value)
-{
-    cli_flag flag = {
-        flag_no_arg,
-        short_name, long_name,
-        NULL, description,
-        value, &flag_bool_callback
-    };
-    flag_add(config, &flag);
-}
-
-void flag_bit(flag_config *config, char short_name, const char *long_name,
-              const char *description, int *value,
-              int bit)
-{
-    cli_flag flag = {
-        flag_no_arg,
-        short_name, long_name,
-        NULL, description,
-        value, &flag_bit_callback,
-        .extra.int_data = bit
-    };
-    flag_add(config, &flag);
-}
 
 typedef struct {
     int short_pos;
@@ -230,8 +123,8 @@ static int handle_error(const char *program, enum parsing_errors error,
 static cli_flag* find_short_flag(flag_config *config, char short_name)
 {
     int i;
-    for (i = 0; i < config->flags.length; i++) {
-        cli_flag *flag = &config->flags.array[i];
+    for (i = 0; i < config->flag_count; i++) {
+        cli_flag *flag = &config->flags[i];
         if (flag->short_name == short_name)
             return flag;
     }
@@ -241,8 +134,8 @@ static cli_flag* find_short_flag(flag_config *config, char short_name)
 static cli_flag* find_long_flag(flag_config *config, const char *long_name)
 {
     int i;
-    for (i = 0; i < config->flags.length; i++) {
-        cli_flag *flag = &config->flags.array[i];
+    for (i = 0; i < config->flag_count; i++) {
+        cli_flag *flag = &config->flags[i];
         if (flag->long_name && strcmp(flag->long_name, long_name) == 0)
             return flag;
     }
@@ -392,8 +285,8 @@ enum {
 static int calc_description_offset(const flag_config *config)
 {
     int descr_offset = -1, i;
-    for (i = 0; i < config->flags.length; i++) {
-        const cli_flag *flag = &config->flags.array[i];
+    for (i = 0; i < config->flag_count; i++) {
+        const cli_flag *flag = &config->flags[i];
         int offset = 0;
 
         offset += usage_indent_size;
@@ -458,8 +351,8 @@ void flag_usage(flag_config *config, const char *descr, const char *epilog)
     descr_offset = calc_description_offset(config);
     if (descr)
         puts(descr);
-    for (i = 0; i < config->flags.length; i++) {
-        const cli_flag *flag = &config->flags.array[i];
+    for (i = 0; i < config->flag_count; i++) {
+        const cli_flag *flag = &config->flags[i];
         if (flag->type == flag_usage_group) {
             printf("\n%s\n", flag->description);
             continue;
