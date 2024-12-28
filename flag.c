@@ -263,6 +263,7 @@ int flag_parse(flag_config *config, const char **argv)
         else if ((*state.argv)[1] == '-') {
             if ((*state.argv)[2] == '\0') { /* -- */
                 end_of_flags = 1;
+                state.argv++;
                 continue;
             }
             else if ((*state.argv)[2] == '=') { /* --= */
@@ -370,7 +371,6 @@ void flag_usage(flag_config *config, const char *descr, const char *epilog)
             printf("\n%s\n", flag->description);
             continue;
         }
-
         pos = printf("%*s", usage_indent_size, "");
         if (flag->short_name)
             pos += printf("-%c", flag->short_name);
