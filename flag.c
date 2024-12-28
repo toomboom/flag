@@ -311,43 +311,51 @@ static int calc_description_offset(const flag_config *config)
     return descr_offset == -1 ? usage_max_descr_offset : descr_offset;
 }
 
-static void pretty_print(const char *str, int text_offset)
+static int indent_line(int count)
 {
-    int pos = text_offset, len;
-    const char *word = NULL;
+    return printf("%*s", count, "");
+}
+
+static int print_wrapped_word(int pos, const char *word, int len,
+                              int text_offset)
+{
+    if (pos + len > usage_max_line_width) {
+        putchar('\n');
+        pos = indent_line(text_offset);
+    }
+    pos += printf("%.*s", len, word);
+    return pos;
+}
+
+static void format_text(const char *str, int pos, int text_offset)
+{
+    int len = 0;
+    const char *word = str;
+    if (pos > text_offset) {
+        putchar('\n');
+        pos = 0;
+    }
+    pos += indent_line(text_offset - pos);
+
     for (; *str; str++) {
         if (!isspace(*str)) {
-            if (!word) {
-                word = str;
-                len = 1;
+            len++;
+        } else {
+            if (len > 0) {
+                pos = print_wrapped_word(pos, word, len, text_offset);
+                len = 0;
             }
-            else {
-                len++;
-            }
-            continue;
-        }
-        else if (word) {
-            if (pos + len > usage_max_line_width) {
-                putchar('\n');
-                pos = printf("%*s%.*s", text_offset, "", len, word);
-            }
-            else {
-                pos += printf("%.*s", len, word);
-            }
-            word = NULL;
-        }
-
-        if (*str == '\n') {
-            putchar('\n');
-            pos = printf("%*s", text_offset, "");
-        }
-        else {
             putchar(*str);
-            pos++;
+            if (*str == '\n') {
+                pos = indent_line(text_offset);
+            } else {
+                pos++;
+            }
+            word = str + 1;
         }
     }
-    if (word)
-        fputs(word, stdout);
+    if (len > 0)
+        print_wrapped_word(pos, word, len, text_offset);
 }
 
 void flag_usage(flag_config *config, const char *descr, const char *epilog)
@@ -363,8 +371,7 @@ void flag_usage(flag_config *config, const char *descr, const char *epilog)
             continue;
         }
 
-        pos = 0;
-        pos += printf("%*s", usage_indent_size, "");
+        pos = printf("%*s", usage_indent_size, "");
         if (flag->short_name)
             pos += printf("-%c", flag->short_name);
         if (flag->short_name && flag->long_name)
@@ -373,15 +380,8 @@ void flag_usage(flag_config *config, const char *descr, const char *epilog)
             pos += printf("--%s", flag->long_name);
         if (flag->arg_format)
             pos += printf(" %s", flag->arg_format);
-
-        if (flag->description) {
-            if (pos <= descr_offset)
-                printf("%*s", descr_offset - pos, "");
-            else
-                printf("\n%*s", descr_offset, "");
-
-            pretty_print(flag->description, descr_offset);
-        }
+        if (flag->description)
+            format_text(flag->description, pos, descr_offset);
         putchar('\n');
     }
     if (epilog)
